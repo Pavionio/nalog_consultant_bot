@@ -1,0 +1,67 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: nalog-postgres
+    environment:
+      POSTGRES_USER: nalog
+      POSTGRES_PASSWORD: nalogpass
+      POSTGRES_DB: nalog_rag
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ./docker/pg-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nalog -d nalog_rag"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  qdrant:
+    image: qdrant/qdrant:v1.16.2
+    container_name: nalog-qdrant
+    ports:
+      - "6333:6333"  # HTTP
+      - "6334:6334"  # gRPC
+    volumes:
+      - qdrant_data:/qdrant/storage
+    restart: unless-stopped
+  
+  llamacpp:
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda
+    container_name: nalog-llamacpp
+    env_file:
+      - .env
+    environment:
+      HF_TOKEN: ${HF_TOKEN}
+    ports:
+      - "8080:8080"
+    volumes:
+      - llama_cache:/root/.cache
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    command: >
+      --host 0.0.0.0 --port 8080
+      -c 8192
+      -ngl 999
+      --parallel 1
+      --threads 8
+      --hf-repo ${LLM}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health | grep -q '\"status\"[[:space:]]*:[[:space:]]*\"ok\"'"]
+      interval: 10s
+      timeout: 3s
+      retries: 30
+      start_period: 30s
+
+
+volumes:
+  pg_data:
+  qdrant_data:
+  llama_cache:
