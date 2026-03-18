@@ -33,11 +33,16 @@ def main() -> None:
             print(f"debug={debug}")
             continue
 
-        result = rag_answer(cfg, retriever, llm, q, chat_history=history)
+        try:
+            result = rag_answer(cfg, retriever, llm, q, chat_history=history)
+        except Exception as e:
+            print(f"\n[ошибка]: {e}")
+            continue
 
         # обновляем историю (минимально)
         history.append({"role": "user", "content": q})
-        history.append({"role": "assistant", "content": result["answer"]})
+        history.append({"role": "assistant", "content": result["answer"] or ""})
+        history = history[-20:]
 
         print("\n" + result["answer"])
 

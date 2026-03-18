@@ -6,6 +6,9 @@ import json
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple, Sequence
 
+from dotenv import load_dotenv
+load_dotenv()
+
 import requests
 from qdrant_client import QdrantClient
 from qdrant_client.http import models as qm
@@ -29,7 +32,7 @@ class RAGConfig:
     max_chunk_chars: int = int(os.getenv("RAG_MAX_CHUNK_CHARS", "2500"))
 
     # LLM generation
-    temperature: float = float(os.getenv("LLM_TEMPERATURE", "0.2"))
+    temperature: float = float(os.getenv("LLM_TEMPERATURE", "0"))
     top_p: float = float(os.getenv("LLM_TOP_P", "0.9"))
     max_tokens: int = int(os.getenv("LLM_MAX_TOKENS", "900"))
     timeout_s: float = float(os.getenv("LLM_TIMEOUT_S", "120"))
@@ -37,11 +40,25 @@ class RAGConfig:
     # Embeddings
     embed_model_name: str = os.getenv("EMBED_MODEL", "BAAI/bge-m3")
     embed_device: str = os.getenv("EMBED_DEVICE", "cuda")  # "cuda" / "cpu"
+
+    # Query rewriting / HyDE
+    use_rewrite: bool = os.getenv("RAG_USE_REWRITE", "0") not in ("0", "false", "no")
+    use_hyde: bool = os.getenv("RAG_USE_HYDE", "0") not in ("0", "false", "no")
+
+    # Reranker
+    use_reranker: bool = os.getenv("RAG_USE_RERANKER", "0") not in ("0", "false", "no")
+    reranker_model: str = os.getenv("RERANKER_MODEL", "BAAI/bge-reranker-v2-m3")
+    reranker_top_k: int = int(os.getenv("RAG_RERANKER_FETCH_K", "12"))  # сколько брать из Qdrant перед rerank
     
     
+def load_reranker(model_name: str, device: str):
+    from sentence_transformers import CrossEncoder
+    return CrossEncoder(model_name, device=device, token=os.getenv("HF_TOKEN"))
+
+
 def load_embedder(model_name: str) -> SentenceTransformer:
     # device можно не задавать — SentenceTransformer сам подхватит cuda, если есть
-    return SentenceTransformer(model_name, device=RAGConfig.embed_device)
+    return SentenceTransformer(model_name, device=os.getenv("EMBED_DEVICE", "cuda"), token=os.getenv("HF_TOKEN"))
     
 @dataclass
 class STEmbedder:
@@ -60,8 +77,9 @@ class STEmbedder:
         Возвращает list[vector] где vector = list[float], удобно для Qdrant.
         normalize_embeddings=True обычно улучшает cosine.
         """
+        clean = [str(t) for t in texts if t is not None]
         embs = self.model.encode(
-            list(texts),
+            clean,
             batch_size=batch_size,
             show_progress_bar=False,
             convert_to_numpy=True,
@@ -72,36 +90,35 @@ class STEmbedder:
         return np.asarray(embs, dtype=np.float32).tolist()
 
     def embed_query(self, text: str) -> List[float]:
+        text = str(text or "").strip()
+        if not text:
+            raise ValueError("embed_query: пустая строка запроса")
         return self.embed_texts([text], batch_size=1)[0]
     
     
-@dataclass(frozen=True)
-class RetrievedChunk:
-    text: str
-    score: float
-    payload: Dict[str, Any]
-
-
 class Retriever:
     def __init__(self, cfg: RAGConfig, embedder) -> None:
         self.cfg = cfg
         self.embedder = embedder
         self.qdrant = QdrantClient(url=cfg.qdrant_url)
+        self._reranker = None
 
-    def search(self, query: str):
+    def _get_reranker(self):
+        if self._reranker is None:
+            self._reranker = load_reranker(self.cfg.reranker_model, self.cfg.embed_device)
+        return self._reranker
+
+    def _qdrant_search(self, query: str, limit: int) -> List[Dict[str, Any]]:
         qvec = self.embedder.embed_query(query)
         resp = self.qdrant.query_points(
             collection_name=self.cfg.qdrant_collection,
-            query=qvec,                  # list[float]
-            limit=self.cfg.top_k,
+            query=qvec,
+            limit=limit,
             with_payload=True,
             with_vectors=False,
         )
-        points = resp.points
-
-        # приведи к своему формату
         out = []
-        for p in points:
+        for p in resp.points:
             if p.score < self.cfg.score_threshold:
                 continue
             payload = p.payload or {}
@@ -114,23 +131,33 @@ class Retriever:
                 }
             )
         return out
-    
-    
-def _format_sources(chunks: List[RetrievedChunk]) -> List[Dict[str, Any]]:
-    sources = []
-    for i, ch in enumerate(chunks, start=1):
-        sources.append(
-            {
-                "n": i,
-                "score": round(ch.score, 4),
-                "source_url": ch.payload.get("source_url") or ch.payload.get("url") or ch.payload.get("doc_url"),
-                "doc_id": ch.payload.get("doc_id") or ch.payload.get("external_id"),
-                "chunk_id": ch.payload.get("chunk_id"),
-            }
-        )
-    return sources
 
+    def search(self, query: str) -> List[Dict[str, Any]]:
+        if self.cfg.use_reranker:
+            return self._search_rerank(query)
+        return self._qdrant_search(query, limit=self.cfg.top_k)
 
+    def _search_rerank(self, query: str) -> List[Dict[str, Any]]:
+        # 1. fetch more candidates from Qdrant
+        candidates = self._qdrant_search(query, limit=self.cfg.reranker_top_k)
+        if not candidates:
+            return []
+
+        # 2. rerank with cross-encoder
+        reranker = self._get_reranker()
+        pairs = [(query, c["text"]) for c in candidates]
+        scores = reranker.predict(pairs, batch_size=len(pairs), show_progress_bar=False)
+
+        # 3. sort by reranker score, keep top_k
+        ranked = sorted(zip(scores, candidates), key=lambda x: x[0], reverse=True)
+        result = []
+        for rerank_score, chunk in ranked[:self.cfg.top_k]:
+            chunk = dict(chunk)
+            chunk["rerank_score"] = float(rerank_score)
+            result.append(chunk)
+        return result
+
+    
 def _chunk_text(ch):
     # поддержка: объект с .text и dict с ["text"]
     if isinstance(ch, dict):
@@ -161,7 +188,7 @@ def build_context(cfg, chunks: List[Any]) -> Tuple[str, List[Dict[str, Any]]]:
             return ch.get("payload") or {}
         return getattr(ch, "payload", {}) or {}
 
-    def get_score(ch) -> float | None:
+    def get_score(ch) -> Optional[float]:
         if isinstance(ch, dict):
             s = ch.get("score")
             return float(s) if s is not None else None
@@ -216,13 +243,14 @@ class LlamaCppChatClient:
         self.cfg = cfg
         self.url = cfg.llm_base_url.rstrip("/") + "/v1/chat/completions"
 
-    def chat(self, messages: List[Dict[str, str]]) -> str:
+    def chat(self, messages: List[Dict[str, str]], max_tokens: Optional[int] = None, temperature: Optional[float] = None) -> str:
         payload = {
             "model": self.cfg.llm_model,
             "messages": messages,
-            "temperature": self.cfg.temperature,
+            "temperature": temperature if temperature is not None else self.cfg.temperature,
             "top_p": self.cfg.top_p,
-            "max_tokens": self.cfg.max_tokens,
+            "max_tokens": max_tokens if max_tokens is not None else self.cfg.max_tokens,
+            "chat_template_kwargs": {"enable_thinking": False},
         }
         r = requests.post(self.url, json=payload, timeout=self.cfg.timeout_s)
         if r.status_code != 200:
@@ -231,6 +259,60 @@ class LlamaCppChatClient:
         data = r.json()
         return data["choices"][0]["message"]["content"]
     
+REWRITE_PROMPT = """Ты — эксперт по налоговому праву РФ. Твоя задача — извлечь суть налогового вопроса и переформулировать его для поиска по базе документов ФНС.
+
+Шаг 1. Определи СУТЬ вопроса — что именно хочет узнать пользователь про налоги/отчётность/документы. Игнорируй лишний контекст: тип бизнеса, регион, историю ситуации, детали про сотрудников и т.д.
+
+Шаг 2. Перефразируй суть с профессиональными терминами ФНС: добавь синонимы, раскрой аббревиатуры, добавь возможные названия документов/форм.
+
+Примеры:
+- "у нас ооо в подмосковье торгуем запчастями, нужно ли сдавать отчёт по счёту в латвийском банке?" → "отчёт о движении денежных средств по счёту в иностранном банке КНД 1112521 обязанность резидента валютный контроль"
+- "я ип стригу людей, если найму мастера что будет с патентом" → "патентная система налогообложения найм работников превышение численности утрата права ПСН"
+- "пришло требование от налоговой не понимаю как считать штраф" → "требование об уплате налога штраф расчёт пени недоимка"
+
+Верни ТОЛЬКО переформулированный поисковый запрос, без пояснений.
+
+Вопрос: {query}"""
+
+
+HYDE_PROMPT = """Ты — эксперт по налоговому праву РФ. Напиши короткий фрагмент официального документа ФНС, который содержит ответ на вопрос пользователя.
+
+Требования:
+- пиши языком официальных писем/приказов ФНС (сухой, юридический стиль)
+- используй профессиональные термины, названия форм, статей НК РФ
+- не отвечай на вопрос напрямую — имитируй выдержку из документа
+- 3-5 предложений
+
+Вопрос: {query}
+
+Верни ТОЛЬКО текст гипотетического фрагмента документа."""
+
+
+def hyde_query(llm: "LlamaCppChatClient", query: str) -> str:
+    """Generate a hypothetical document passage and use it as the search query."""
+    try:
+        msgs = [{"role": "user", "content": HYDE_PROMPT.format(query=query)}]
+        hypothesis = llm.chat(msgs, max_tokens=300).strip()
+        if len(hypothesis) < 20:
+            return query
+        return hypothesis
+    except Exception:
+        return query
+
+
+def rewrite_query(llm: "LlamaCppChatClient", query: str) -> str:
+    """Expand query with tax-law terminology for better semantic matching."""
+    try:
+        msgs = [{"role": "user", "content": REWRITE_PROMPT.format(query=query)}]
+        rewritten = llm.chat(msgs).strip()
+        # Sanity check: if LLM returned something too short or identical, keep original
+        if len(rewritten) < 10 or rewritten == query:
+            return query
+        return rewritten
+    except Exception:
+        return query
+
+
 SYSTEM_PROMPT = """Ты — помощник по налоговым документам ФНС РФ. Работаешь ТОЛЬКО по предоставленному контексту (выдержкам документов).
 
 ЖЁСТКИЕ ПРАВИЛА
@@ -271,8 +353,16 @@ def rag_answer(
     llm: LlamaCppChatClient,
     user_query: str,
     chat_history: Optional[List[Dict[str, str]]] = None,
+    chunks: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
-    chunks = retriever.search(user_query)
+    if chunks is None:
+        if cfg.use_hyde:
+            search_query = hyde_query(llm, user_query)
+        elif cfg.use_rewrite:
+            search_query = rewrite_query(llm, user_query)
+        else:
+            search_query = user_query
+        chunks = retriever.search(search_query)
     context, sources = build_context(cfg, chunks)
 
     # Сообщения для LLM
@@ -289,7 +379,7 @@ def rag_answer(
 
     msgs.append({"role": "user", "content": user_prompt})
 
-    answer = llm.chat(msgs)
+    answer = llm.chat(msgs, max_tokens=2000)
 
     return {
         "query": user_query,

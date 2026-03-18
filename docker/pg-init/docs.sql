@@ -33,10 +33,15 @@ CREATE TABLE IF NOT EXISTS rag_doc (
   last_error        text,                     -- последняя ошибка (коротко)
 
   -- связь с Qdrant (сам текст/чанки хранятся там)
-  qdrant_collection text NOT NULL DEFAULT 'tax_ru',
+  qdrant_collection text NOT NULL DEFAULT 'rag_chunks',
   qdrant_doc_key    text,                     -- стабильный ключ документа (например "nalog_letters:12345" или hash(url))
   qdrant_revision   int  NOT NULL DEFAULT 0,  -- увеличивается при изменении контента
-  indexed_at        timestamptz               -- когда текущая revision успешно залита в Qdrant
+  indexed_at        timestamptz,              -- когда текущая revision успешно залита в Qdrant
+
+  -- локальные пути к файлам (для отладки)
+  raw_path          text,
+  text_path         text,
+  chunks_path       text
 );
 
 -- уникальность "документа" внутри источника (если external_id существует)

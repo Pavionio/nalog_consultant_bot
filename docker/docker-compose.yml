@@ -32,7 +32,8 @@ services:
     image: ghcr.io/ggml-org/llama.cpp:server-cuda
     container_name: nalog-llamacpp
     env_file:
-      - .env
+      - path: ../.env
+        required: false
     environment:
       HF_TOKEN: ${HF_TOKEN}
     ports:

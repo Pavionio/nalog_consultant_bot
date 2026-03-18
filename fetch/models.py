@@ -8,6 +8,7 @@ class Source:
     kind: str
     active: bool
     handler: str
+    crawl_freq_days: int = 7
 
 @dataclass
 class DiscoveredDoc:
