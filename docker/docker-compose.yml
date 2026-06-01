@@ -10,7 +10,7 @@ services:
       - "5432:5432"
     volumes:
       - pg_data:/var/lib/postgresql/data
-      - ./docker/pg-init:/docker-entrypoint-initdb.d:ro
+      - ./pg-init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U nalog -d nalog_rag"]
       interval: 5s
@@ -27,17 +27,15 @@ services:
     volumes:
       - qdrant_data:/qdrant/storage
     restart: unless-stopped
-  
+
   llamacpp:
     image: ghcr.io/ggml-org/llama.cpp:server-cuda
     container_name: nalog-llamacpp
     env_file:
       - path: ../.env
         required: false
-    environment:
-      HF_TOKEN: ${HF_TOKEN}
     ports:
-      - "8080:8080"
+      - "${LLAMACPP_HOST:-127.0.0.1}:${LLAMACPP_HOST_PORT:-8080}:8080"
     volumes:
       - llama_cache:/root/.cache
     deploy:
@@ -59,10 +57,46 @@ services:
       interval: 10s
       timeout: 3s
       retries: 30
-      start_period: 30s
+      # First run downloads the GGUF model (several GB) — keep the container in
+      # "starting" (not "unhealthy") long enough for a slow download to finish.
+      start_period: 3600s
+
+  bot:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.bot
+    container_name: nalog-bot
+    env_file:
+      - path: ../.env
+        required: false
+    environment:
+      # Reach the sibling services by their compose hostnames (override the
+      # localhost values from .env, which are meant for host-based dev).
+      QDRANT_URL: http://qdrant:6333
+      LLM_BASE_URL: http://llamacpp:8080
+      EMBED_DEVICE: cuda
+      HF_HOME: /root/.cache/huggingface
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - ../data:/app/data            # bot logs, accepted-users / mode state
+      - hf_cache:/root/.cache/huggingface  # cached embedder + reranker weights
+    depends_on:
+      qdrant:
+        condition: service_started
+      llamacpp:
+        condition: service_healthy
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
 
 
 volumes:
   pg_data:
   qdrant_data:
   llama_cache:
+  hf_cache:
