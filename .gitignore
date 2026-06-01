@@ -1,0 +1,10 @@
+.venv
+.env
+data/
+TODO
+CLAUDE.md
+.claude
+text/
+eval_*
+**/__pycache__/
+**/*.pyc

@@ -1,0 +1,25 @@
+# Keep the build context small — the repo holds large eval/data artifacts.
+.git
+.venv
+.claude
+.codex
+.agents
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+
+# Data, corpora, metrics, model caches
+data/
+text/
+docs/
+
+# Large eval datasets / reports / local CUDA installers
+eval_*
+*.deb
+*.log
+
+# Editor / OS noise
+.vscode
+.idea
+.DS_Store

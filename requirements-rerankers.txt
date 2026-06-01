@@ -1,0 +1,10 @@
+# Optional dependencies for reranker ablation experiments.
+# flash-attn is intentionally not required; install it separately only if needed.
+FlagEmbedding
+sentence-transformers
+transformers>=4.51.0,<5
+einops
+accelerate
+# Mixedbread official reranker backend:
+# uv pip install -U mxbai-rerank
+mxbai-rerank

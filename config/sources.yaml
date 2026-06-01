@@ -1,0 +1,111 @@
+sources:
+  - code: nalog_letters
+    base_url: https://www.nalog.gov.ru/rn77/about_fts/about_nalog/
+    kind: letter
+    crawl_freq_days: 7
+    active: true
+    handler: nalog_about_nalog
+
+  - code: nalog_docs
+    base_url: https://www.nalog.gov.ru/rn77/about_fts/docs/
+    kind: order
+    crawl_freq_days: 7
+    active: true 
+    handler: nalog_docs
+
+  - code: nalog_docs_fts
+    base_url: https://www.nalog.gov.ru/rn77/about_fts/docs_fts/
+    kind: order
+    crawl_freq_days: 7
+    active: false
+
+  - code: pravo_nk1
+    base_url: http://pravo.gov.ru/proxy/ips/?savertf=&nd=102054722&page=all
+    kind: law
+    crawl_freq_days: 7
+    active: true
+    handler: pravo_ips
+
+  - code: nalog_calendar
+    base_url: https://www.nalog.gov.ru/rn77/opendata/7707329152-kalendar/
+    kind: calendar
+    crawl_freq_days: 30
+    active: true
+    handler: nalog_calendar
+
+  - code: minfin_commonlaw
+    base_url: https://minfin.gov.ru/ru/perfomance/tax_relations/Answers/commonlaw/
+    kind: letter
+    crawl_freq_days: 7
+    active: true
+    handler: minfin_answers_section
+
+  - code: minfin_orgprofit
+    base_url: https://minfin.gov.ru/ru/perfomance/tax_relations/Answers/orgprofit/
+    kind: letter
+    crawl_freq_days: 7
+    active: true
+    handler: minfin_answers_section
+
+  - code: minfin_fizprofit
+    base_url: https://minfin.gov.ru/ru/perfomance/tax_relations/Answers/fizprofit/
+    kind: letter
+    crawl_freq_days: 7
+    active: true
+    handler: minfin_answers_section
+
+  - code: minfin_property
+    base_url: https://minfin.gov.ru/ru/perfomance/tax_relations/Answers/property/
+    kind: letter
+    crawl_freq_days: 7
+    active: true
+    handler: minfin_answers_section
+
+  - code: minfin_indirect
+    base_url: https://minfin.gov.ru/ru/perfomance/tax_relations/Answers/indirect/
+    kind: letter
+    crawl_freq_days: 7
+    active: true
+    handler: minfin_answers_section
+
+  - code: minfin_international
+    base_url: https://minfin.gov.ru/ru/perfomance/tax_relations/Answers/international/
+    kind: letter
+    crawl_freq_days: 7
+    active: true
+    handler: minfin_answers_section
+
+  - code: minfin_special
+    base_url: https://minfin.gov.ru/ru/perfomance/tax_relations/Answers/special/
+    kind: letter
+    crawl_freq_days: 7
+    active: true
+    handler: minfin_answers_section
+
+  - code: minfin_transfert
+    base_url: https://minfin.gov.ru/ru/perfomance/tax_relations/Answers/transfert/
+    kind: letter
+    crawl_freq_days: 7
+    active: true
+    handler: minfin_answers_section
+
+  - code: minfin_foreign
+    base_url: https://minfin.gov.ru/ru/perfomance/tax_relations/Answers/foreign/
+    kind: letter
+    crawl_freq_days: 7
+    active: true
+    handler: minfin_answers_section
+
+  - code: minfin_customs_value
+    base_url: https://minfin.gov.ru/ru/perfomance/tax_relations/Answers/customs_value/
+    kind: letter
+    crawl_freq_days: 7
+    active: true
+    handler: minfin_answers_section
+
+  - code: minfin_imposition
+    base_url: https://minfin.gov.ru/ru/perfomance/tax_relations/Answers/imposition/
+    kind: letter
+    crawl_freq_days: 7
+    active: true
+    handler: minfin_answers_section

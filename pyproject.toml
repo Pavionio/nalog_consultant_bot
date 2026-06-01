@@ -1,0 +1,35 @@
+[project]
+name = "nalog-consultant-bot"
+version = "0.1.0"
+description = "RAG bot for Russian tax consultation"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "aiogram>=3.0.0",
+    "beautifulsoup4==4.14.3",
+    "chonkie==1.6.0",
+    "httpx==0.28.1",
+    "lxml==6.0.2",
+    "numpy==2.4.3",
+    "psycopg[binary]==3.3.3",
+    "python-dotenv==1.2.2",
+    "pyyaml==6.0.3",
+    "qdrant-client==1.17.1",
+    "requests==2.32.5",
+    "scikit-learn",
+    "sentence-transformers==5.3.0",
+    "tqdm==4.67.3",
+]
+
+[project.optional-dependencies]
+rerankers = [
+    "FlagEmbedding",
+    "sentence-transformers",
+    "transformers>=4.51.0,<5",
+    "einops",
+    "accelerate",
+    "mxbai-rerank",
+]
+
+[tool.uv]
+package = false
