@@ -1,9 +1,8 @@
 """
-Run full eval matrix in a single process — models loaded once.
+Run full eval matrix in a single process - models loaded once.
 
-Two-phase approach:
-  Phase 1 (LLM): precompute all query transformations (hyde/rewrite) while llama.cpp is running
-  Phase 2 (retrieval): run search + rerank after llama.cpp is stopped (frees GPU for reranker)
+LLM query transformations are precomputed before retrieval runs. llama.cpp is kept
+running while embedder/reranker are loaded, which fits current 16GB VRAM setups.
 
 Usage:
     python scripts/run_eval_matrix.py --k 5
@@ -13,8 +12,10 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import datetime
 import json
+import os
 import sys
 from collections import defaultdict
 from pathlib import Path
@@ -25,24 +26,14 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from dotenv import load_dotenv
 load_dotenv()
 
-import subprocess
-import time
 from tqdm import tqdm
 from src.rag.core import RAGConfig, STEmbedder, Retriever, LlamaCppChatClient, rewrite_query, hyde_query
 from src.eval.eval import evaluate_dataset, _append_log, _print_log_table, EVAL_LOG, EVAL_LOG_SOURCE, load_jsonl
 
-DOCKER_COMPOSE  = "docker/docker-compose.yml"
-LLAMA_SERVICE   = "llamacpp"
 PRECOMPUTE_CACHE = "data/metrics/precomputed_queries.json"
-
-
-def _docker(action: str) -> None:
-    cmd = ["docker", "compose", "-f", DOCKER_COMPOSE, "--env-file", ".env", action, LLAMA_SERVICE]
-    print(f"  $ {' '.join(cmd)}")
-    subprocess.run(cmd, check=True)
-    if action == "start":
-        print("  waiting for llama.cpp to be ready...")
-        time.sleep(10)
+TEST_LLM_BASE_URL = "http://172.18.96.1:1234"
+TEST_LLM_MODEL = "openai/gpt-oss-20b"
+TEST_LLM_NO_PROXY_HOST = "172.18.96.1"
 
 
 DEFAULT_DATASETS = [
@@ -68,6 +59,16 @@ def _needs_llm(method: Tuple) -> bool:
 
 def _needs_reranker(method: Tuple) -> bool:
     return method[3]
+
+
+def configure_no_proxy(host: str) -> None:
+    current = os.environ.get("NO_PROXY") or os.environ.get("no_proxy") or ""
+    parts = [part.strip() for part in current.split(",") if part.strip()]
+    if host not in parts:
+        parts.append(host)
+    value = ",".join(parts)
+    os.environ["NO_PROXY"] = value
+    os.environ["no_proxy"] = value
 
 
 def precompute_queries(
@@ -125,6 +126,11 @@ def _save_run(report, out_dir, label, dataset_label, k, log_path):
         "mrr":         m.get(f"mrr@{k}"),
         "ndcg":        m.get(f"ndcg@{k}"),
         "precision":   m.get(f"precision@{k}"),
+        "hard_neg_rate": m.get(f"hard_negative_rate@{k}"),
+        "hard_neg_count": m.get(f"avg_hard_negatives@{k}"),
+        "dense_latency_avg_ms": m.get("dense_latency_avg_ms"),
+        "rerank_latency_avg_ms": m.get("rerank_latency_avg_ms"),
+        "latency_p95_ms": m.get("latency_p95_ms"),
         "judge_faith": None,
         "judge_rel":   None,
     }
@@ -155,13 +161,27 @@ def main() -> None:
                     help="Methods: baseline rewrite hyde reranker hyde+reranker")
     ap.add_argument("--log", default=EVAL_LOG)
     ap.add_argument("--out-dir", default="data/metrics")
+    ap.add_argument("--llm-base-url", default=TEST_LLM_BASE_URL,
+                    help="Override llama.cpp base URL, e.g. http://192.168.1.50:8081")
+    ap.add_argument("--llm-model", default=TEST_LLM_MODEL)
+    ap.add_argument("--qdrant-url", default=None,
+                    help="Override Qdrant URL, e.g. http://127.0.0.1:6333")
     ap.add_argument("--skip-precompute", action="store_true",
                     help="Skip LLM phase, load precomputed queries from cache")
     args = ap.parse_args()
 
     Path(args.out_dir).mkdir(parents=True, exist_ok=True)
 
+    configure_no_proxy(TEST_LLM_NO_PROXY_HOST)
     cfg = RAGConfig()
+    cfg_overrides = {}
+    cfg_overrides["llm_base_url"] = args.llm_base_url
+    cfg_overrides["llm_model"] = args.llm_model
+    if args.qdrant_url:
+        cfg_overrides["qdrant_url"] = args.qdrant_url
+    if cfg_overrides:
+        cfg = dataclasses.replace(cfg, **cfg_overrides)
+
     methods_to_run = [m for m in METHODS if args.methods is None or m[0] in args.methods]
     datasets = [d for d in args.datasets if Path(d).exists()]
 
@@ -192,15 +212,6 @@ def main() -> None:
         print(f"LLM precomputation done. Cache saved to {cache_path}")
 
     # ─────────────────────────────────────────────
-    # Stop llama.cpp if reranker needed
-    # ─────────────────────────────────────────────
-    llama_stopped = False
-    if any(_needs_reranker(m) for m in methods_to_run):
-        print("\n=== Stopping llama.cpp to free GPU memory for reranker ===")
-        _docker("stop")
-        llama_stopped = True
-
-    # ─────────────────────────────────────────────
     # Load embedder + reranker
     # ─────────────────────────────────────────────
     print("\nLoading embedder...")
@@ -228,6 +239,8 @@ def main() -> None:
         pbar.set_postfix_str(f"{label} {dataset_label} k{k}")
 
         precomputed_queries = precomputed.get(f"{dataset}|{label}")
+        if precomputed_queries is None and use_hyde:
+            precomputed_queries = precomputed.get(f"{dataset}|hyde")
 
         report = evaluate_dataset(
             dataset,
@@ -240,16 +253,10 @@ def main() -> None:
             retriever=retriever,
             llm=None,
             precomputed_queries=precomputed_queries,
+            method=label,
         )
 
         _save_run(report, args.out_dir, label, dataset_label, k, args.log)
-
-    # ─────────────────────────────────────────────
-    # Restart llama.cpp if it was stopped
-    # ─────────────────────────────────────────────
-    if llama_stopped:
-        print("\n=== Restarting llama.cpp ===")
-        _docker("start")
 
     print("\n")
     _print_log_table(args.log)

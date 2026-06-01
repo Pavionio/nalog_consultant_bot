@@ -1,0 +1,48 @@
+[1/40] single_doc=False union_doc=False searches=3 chunks=7 30.23s
+[2/40] single_doc=False union_doc=True searches=2 chunks=6 29.91s
+[3/40] single_doc=True union_doc=True searches=1 chunks=4 18.9s
+[4/40] single_doc=False union_doc=False searches=4 chunks=7 51.49s
+[5/40] single_doc=True union_doc=True searches=2 chunks=4 33.27s
+[6/40] single_doc=True union_doc=True searches=1 chunks=4 35.44s
+[7/40] single_doc=True union_doc=True searches=2 chunks=8 53.03s
+[8/40] single_doc=True union_doc=True searches=1 chunks=4 37.42s
+[9/40] single_doc=True union_doc=True searches=3 chunks=6 48.9s
+[10/40] single_doc=False union_doc=False searches=2 chunks=2 22.02s
+[11/40] single_doc=True union_doc=True searches=2 chunks=7 58.82s
+[12/40] single_doc=True union_doc=True searches=2 chunks=6 33.42s
+[13/40] single_doc=True union_doc=False searches=2 chunks=8 58.12s
+[14/40] single_doc=True union_doc=True searches=1 chunks=4 39.25s
+[15/40] single_doc=False union_doc=False searches=3 chunks=8 54.34s
+[16/40] single_doc=True union_doc=True searches=2 chunks=8 54.72s
+[17/40] single_doc=True union_doc=True searches=3 chunks=10 68.71s
+[18/40] single_doc=True union_doc=True searches=4 chunks=13 70.62s
+[19/40] single_doc=False union_doc=False searches=2 chunks=7 57.86s
+[20/40] single_doc=True union_doc=False searches=2 chunks=4 29.13s
+[21/40] single_doc=True union_doc=True searches=3 chunks=8 62.87s
+[22/40] single_doc=True union_doc=True searches=2 chunks=4 44.4s
+[23/40] single_doc=True union_doc=True searches=1 chunks=4 44.68s
+[24/40] single_doc=True union_doc=False searches=2 chunks=6 30.6s
+[25/40] single_doc=True union_doc=True searches=3 chunks=9 52.21s
+[26/40] single_doc=False union_doc=True searches=3 chunks=4 53.73s
+[27/40] single_doc=True union_doc=False searches=3 chunks=10 51.94s
+[28/40] single_doc=True union_doc=True searches=2 chunks=8 81.94s
+[29/40] single_doc=True union_doc=True searches=2 chunks=8 72.68s
+[30/40] single_doc=True union_doc=True searches=2 chunks=8 60.13s
+[31/40] single_doc=True union_doc=True searches=2 chunks=4 45.35s
+[32/40] single_doc=True union_doc=True searches=3 chunks=8 59.67s
+[33/40] single_doc=True union_doc=False searches=2 chunks=8 50.38s
+[34/40] single_doc=True union_doc=True searches=4 chunks=8 61.63s
+[35/40] single_doc=True union_doc=True searches=2 chunks=8 59.81s
+[36/40] single_doc=False union_doc=False searches=2 chunks=5 42.72s
+[37/40] single_doc=False union_doc=False searches=3 chunks=8 69.47s
+[38/40] single_doc=True union_doc=True searches=2 chunks=5 52.23s
+[39/40] single_doc=True union_doc=False searches=2 chunks=8 45.62s
+[40/40] single_doc=False union_doc=True searches=3 chunks=6 59.15s
+
+==== AGENTIC vs SINGLE-SHOT (superhard subset, doc-level) ====
+  n=40  model=openai/gpt-oss-20b  effort=low
+  single-shot dense  Hit(doc)=0.75  Hit(strict)=0.75
+  agentic (union)    Hit(doc)=0.675  Hit(strict)=0.675
+  avg searches=2.3  avg chunks=6.6
+  latency avg=49.67s  p95=70.62s
+  agent found gold but single-shot missed: 3 | reverse: 6
