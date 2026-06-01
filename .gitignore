@@ -4,7 +4,19 @@ data/
 TODO
 CLAUDE.md
 .claude
-text/
 eval_*
 **/__pycache__/
 **/*.pyc
+
+# LaTeX build artifacts (track text/*.tex and text/*.bib, ignore compiled output)
+text/*.aux
+text/*.log
+text/*.out
+text/*.toc
+text/*.bbl
+text/*.bcf
+text/*.blg
+text/*.run.xml
+text/*.synctex.gz
+text/*.fls
+text/*.fdb_latexmk
